@@ -22,15 +22,15 @@ exit /B 0
 REM Makes sure python v3 and basic utils are installed.
 :InstallPip
 python.exe -m ensurepip --default-pip >nul 2>&1 || exit /B 1
-pip3.exe install --upgrade pip setuptools wheel >nul 2>&1 || exit /B 1
+python.exe -m pip install --upgrade pip setuptools wheel >nul 2>&1 || exit /B 1
 exit /B 0
 
 REM Install dependency libraries.
 :InstallDeps
-pip3.exe install --upgrade pyautogui >nul 2>&1 || exit /B 1
-pip3.exe install --upgrade pytesseract >nul 2>&1 || exit /B 1
-pip3.exe install --upgrade pynput >nul 2>&1 || exit /B 1
-pip3.exe install --upgrade opencv-python >nul 2>&1 || exit /B 1
+python.exe -m pip install --upgrade pyautogui >nul 2>&1 || exit /B 1
+python.exe -m pip install --upgrade pytesseract >nul 2>&1 || exit /B 1
+python.exe -m pip install --upgrade pynput >nul 2>&1 || exit /B 1
+python.exe -m pip install --upgrade opencv-python >nul 2>&1 || exit /B 1
 exit /B 0
 
 REM Prints error message before exiting with fail status.
