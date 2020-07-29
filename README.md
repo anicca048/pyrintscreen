@@ -1,5 +1,6 @@
 # Pyrintscreen
 Automates typing information on screen using OCR.
+
 Useful in situations where data can't be copied to the clipboard.
 
 usage: pyrintscreen.py [-h] [-v VALUE_TYPE] [-w] [-s] [-f]
