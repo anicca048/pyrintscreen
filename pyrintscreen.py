@@ -30,9 +30,10 @@
  F9: Kill program.
 '''
 
+import sys
+
 # Make sure the right version of python is being used.
 try:
-    import sys
     assert sys.version_info >= (3, 0, 0), "python version error"
 except AssertionError:
     print("error: python3 is required to run this program!")
@@ -50,7 +51,6 @@ import pytesseract
 from pynput.keyboard import Controller, Listener, Key
 import cv2
 import numpy
-
 from time import sleep
 from random import randint
 
@@ -154,9 +154,8 @@ def get_screen_region_image():
     return region_image
 
 # Takes screenshot, converts specific region to text with OCR, and types it.
-def get_image_text(image):    
+def get_image_text(image):
     # Convert screenshot to string with OCR.
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract'
     image_text = pytesseract.image_to_string(image)
     
     # Return OCR data.
@@ -223,10 +222,14 @@ def main(value_type, whitespace, symbols, fast_typing):
     whitespace_supported = whitespace
     symbols_supported = symbols
     
+    # Set tesseract binary location incase it's not in path (if on Windows OS).
+    if sys.platform == "win32":
+        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract'
+    
     # Get region of screen to use.
     user_select_screen_region()
     
-    # Create key sniffer thread and join it.
+    # Create key sniffer thread and join it (ignore multithreading).
     key_sniffer = Listener(on_release = on_key_release)
     key_sniffer.start()
     key_sniffer.join()

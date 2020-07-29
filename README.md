@@ -7,3 +7,4 @@ usage: pyrintscreen.py [-h] [-v VALUE_TYPE] [-w] [-s] [-f]
 
 keybinds: F4 (redraw OCR area), F8 (type OCR data), F9 (kill script)
 
+Must have Google Tesseract OCR program installed (ver 4.0.0+ recommended).
