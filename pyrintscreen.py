@@ -40,12 +40,7 @@ except AssertionError:
     exit(1)
 
 import argparse
-
-try:
-    from PIL import Image
-except ImportError:
-    import Image
-
+from PIL import Image
 import pyautogui
 import pytesseract
 from pynput.keyboard import Controller, Listener, Key
@@ -53,6 +48,8 @@ import cv2
 import numpy
 from time import sleep
 from random import randint
+
+WIN32_TESSERACT_V4_PATH = r'C:\Program Files\Tesseract-OCR\tesseract'
 
 # Mouse callback function to draw rectangle.
 def draw_rectangle(event, x, y, flags, param):
@@ -75,7 +72,7 @@ def draw_rectangle(event, x, y, flags, param):
 
 # Allows the user to select bounds of the screen.
 def user_select_screen_region():
-    global selected_region, draw_start, draw_redraw, draw_finish, ix, iy, fx, fy
+    global draw_start, draw_redraw, draw_finish, ix, iy, fx, fy
     
     # Vars for drawing rectangle.
     draw_start = False
@@ -117,41 +114,32 @@ def user_select_screen_region():
     # Window cleanup.
     cv2.destroyAllWindows()
     
-    # Return position info as tuple.
-    selected_region = (ix, iy, fx, fy)
+    # Very basic invalid selection test.
+    if (ix < 1) or (iy < 1) or (fx < 1) or (fy < 1):
+        return (0, 0, 0, 0)
+    elif (ix == fx) and (iy == fy):
+        return (0, 0, 0, 0)
+    
+    return (ix, iy, fx, fy)
 
 # Removes unwanted characters from string.
-def get_valid_chars(text):
-    global alpha_supported, numeric_supported, whitespace_supported, symbols_supported
-    
+def get_valid_chars(text, alpha, numeric, whitespace, symbols):
     # String to hold numeric chars.
     valid_str = ""
     
     # Add any numeric chars to string.
     for ch in text:
-        if alpha_supported and ch.isalpha():
+        if alpha and ch.isalpha():
             valid_str += ch
-        elif numeric_supported and ch.isdigit():
+        elif numeric and ch.isdigit():
             valid_str += ch
-        elif whitespace_supported and ch.isspace():
+        elif whitespace and ch.isspace():
             valid_str += ch
-        elif symbols_supported and (ord(ch) > 32 and ord(ch) < 48):
+        elif symbols and (ord(ch) > 32 and ord(ch) < 48):
             valid_str += ch
     
     # Return numeric values.
     return valid_str
-
-# Get region of the screen as image.
-def get_screen_region_image():
-    global selected_region
-    
-    # Get screenshot.
-    screen_image = pyautogui.screenshot()
-    
-    # Crop screenshot to selected region.
-    region_image = screen_image.crop(box=selected_region)
-    
-    return region_image
 
 # Takes screenshot, converts specific region to text with OCR, and types it.
 def get_image_text(image):
@@ -161,15 +149,40 @@ def get_image_text(image):
     # Return OCR data.
     return image_text
 
+# Get region of the screen as image.
+def get_screen_region_image():
+    global selected_region
+    
+    # Test for invalid setting on tuple.
+    if selected_region == (0, 0, 0, 0):
+        raise SystemError("invalid selected screen bounds for OCR")
+    
+    # Get screenshot.
+    screen_image = pyautogui.screenshot()
+    
+    # Crop screenshot to selected region.
+    region_image = screen_image.crop(box=selected_region)
+    
+    return region_image
+
 # Key released hook.
 def on_key_release(key_released):
-    global anti_detection
+    global anti_detection, selected_region, allowed_chars
     
     # Bind F8 to the screen read write functionality.
     if key_released == Key.f8:
         # Get targeted screen text (numbers only).
-        screen_text = get_image_text(get_screen_region_image())
-        filtered_text = get_valid_chars(screen_text)
+        screen_text = ""
+        
+        try:
+            screen_text = get_image_text(get_screen_region_image())
+        except SystemError:
+            print("Error: selected screen region is invalid!\n"
+                  + "Please reselect the screen region.", file=sys.stderr)
+        
+        filtered_text = get_valid_chars(screen_text, allowed_chars[0],
+                                        allowed_chars[1], allowed_chars[2],
+                                        allowed_chars[3])
         
         # Create keyboard writer.
         key_writer = Controller()
@@ -190,27 +203,16 @@ def on_key_release(key_released):
                 sleep(delay_time)
         else:
             key_writer.type(filtered_text)
-    
     # Bind F4 to redraw screen region.
     elif key_released == Key.f4:
-        user_select_screen_region()
+        selected_region = user_select_screen_region()
     # Bind F9 to exit() to kill thread.
     elif key_released == Key.f9:
         exit(0)
 
 # Entry point funciton.
-def main(value_type, whitespace, symbols, fast_typing):
-    global numeric_supported, alpha_supported, whitespace_supported, symbols_supported, anti_detection
-    
-    # Set allowed main characters for OCR result.
-    if value_type == "alpha":
-        alpha_supported = True
-        numeric_supported = False
-    elif value_type == "alphanumeric":
-        alpha_supported, numeric_supported = True, True
-    else:
-        alpha_supported = False
-        numeric_supported = True
+def main(alpha, numeric, whitespace, symbols, fast_typing):
+    global anti_detection, selected_region, allowed_chars
     
     # Disable anti bot detection timing if requested.
     if fast_typing:
@@ -218,16 +220,15 @@ def main(value_type, whitespace, symbols, fast_typing):
     else:
         anti_detection = True
     
-    # Set allowed additional characters for OCR result.
-    whitespace_supported = whitespace
-    symbols_supported = symbols
+    # Init allowed chars for OCR (alpha, numeric, whitespace, symbols).
+    allowed_chars = (alpha, numeric, whitespace, symbols)
     
     # Set tesseract binary location incase it's not in path (if on Windows OS).
     if sys.platform == "win32":
-        pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract'
+        pytesseract.pytesseract.tesseract_cmd = WIN32_TESSERACT_V4_PATH
     
     # Get region of screen to use.
-    user_select_screen_region()
+    selected_region = user_select_screen_region()
     
     # Create key sniffer thread and join it (ignore multithreading).
     key_sniffer = Listener(on_release = on_key_release)
@@ -256,14 +257,16 @@ if __name__ == "__main__":
     # Fetch arguments from sys.argv[].
     args = parser.parse_args()
     
+    if not args.value_type:
+        args.value_type = "numeric"
+    
     # Check for valid arguments, and run program.
-    if args.value_type and (args.value_type != "alpha"
-                            and args.value_type != "numeric"
-                            and args.value_type != "alphanumeric"):
+    if not args.value_type in {"alpha", "numeric", "alphanumeric"}:
         parser.print_help(sys.stderr)
         exit(1)
     else:
-        main(value_type = (args.value_type if args.value_type else "numeric"),
-             whitespace = (args.whitespace if args.whitespace else False),
-             symbols = (args.symbols if args.symbols else False),
-             fast_typing = (args.fast_typing if args.fast_typing else False))
+        main(alpha = (True if args.value_type != "numeric" else False),
+             numeric = (True if args.value_type != "alpha" else False),
+             whitespace = (True if args.whitespace else False),
+             symbols = (True if args.symbols else False),
+             fast_typing = (True if args.fast_typing else False))
