@@ -46,10 +46,52 @@ import pytesseract
 from pynput.keyboard import Controller, Listener, Key
 import cv2
 import numpy
+from queue import Queue
 from time import sleep
 from random import randint
 
 WIN32_TESSERACT_V4_PATH = r'C:\Program Files\Tesseract-OCR\tesseract'
+
+# Removes unwanted characters from string.
+def get_valid_chars(text, alpha, numeric, whitespace, symbols):
+    # String to hold valid chars.
+    valid_str = ""
+    
+    # Add any valid chars to string.
+    for ch in text:
+        if alpha and ch.isalpha():
+            valid_str += ch
+        elif numeric and ch.isdigit():
+            valid_str += ch
+        elif whitespace and ch.isspace():
+            valid_str += ch
+        elif symbols and (ord(ch) > 32 and ord(ch) < 48):
+            valid_str += ch
+    
+    # Return allowed values in OCR string.
+    return valid_str
+
+# Takes screenshot, converts specific region to text with OCR, and types it.
+def get_image_text(image):
+    # Convert screenshot to string with OCR.
+    image_text = pytesseract.image_to_string(image)
+    
+    # Return OCR data.
+    return image_text
+
+# Get region of the screen as image.
+def get_screen_region_image(selected_region):
+    # Test for invalid setting on tuple.
+    if selected_region == (0, 0, 0, 0):
+        raise SystemError("invalid selected screen bounds for OCR")
+    
+    # Get screenshot.
+    screen_image = pyautogui.screenshot()
+    
+    # Crop screenshot to selected region.
+    region_image = screen_image.crop(box=selected_region)
+    
+    return region_image
 
 # Mouse callback function to draw rectangle.
 def draw_rectangle(event, x, y, flags, param):
@@ -122,97 +164,24 @@ def user_select_screen_region():
     
     return (ix, iy, fx, fy)
 
-# Removes unwanted characters from string.
-def get_valid_chars(text, alpha, numeric, whitespace, symbols):
-    # String to hold numeric chars.
-    valid_str = ""
+# Key released handler.
+def on_key_release(key):
+    global key_queue, bind_list
     
-    # Add any numeric chars to string.
-    for ch in text:
-        if alpha and ch.isalpha():
-            valid_str += ch
-        elif numeric and ch.isdigit():
-            valid_str += ch
-        elif whitespace and ch.isspace():
-            valid_str += ch
-        elif symbols and (ord(ch) > 32 and ord(ch) < 48):
-            valid_str += ch
-    
-    # Return numeric values.
-    return valid_str
+    # Check if key is in bind list and add it to the queue.
+    if key in bind_list:
+        key_queue.put(key)
 
-# Takes screenshot, converts specific region to text with OCR, and types it.
-def get_image_text(image):
-    # Convert screenshot to string with OCR.
-    image_text = pytesseract.image_to_string(image)
-    
-    # Return OCR data.
-    return image_text
-
-# Get region of the screen as image.
-def get_screen_region_image():
-    global selected_region
-    
-    # Test for invalid setting on tuple.
-    if selected_region == (0, 0, 0, 0):
-        raise SystemError("invalid selected screen bounds for OCR")
-    
-    # Get screenshot.
-    screen_image = pyautogui.screenshot()
-    
-    # Crop screenshot to selected region.
-    region_image = screen_image.crop(box=selected_region)
-    
-    return region_image
-
-# Key released hook.
-def on_key_release(key_released):
-    global anti_detection, selected_region, allowed_chars
-    
-    # Bind F8 to the screen read write functionality.
-    if key_released == Key.f8:
-        # Get targeted screen text (numbers only).
-        screen_text = ""
-        
-        try:
-            screen_text = get_image_text(get_screen_region_image())
-        except SystemError:
-            print("Error: selected screen region is invalid!\n"
-                  + "Please reselect the screen region.", file=sys.stderr)
-        
-        filtered_text = get_valid_chars(screen_text, allowed_chars[0],
-                                        allowed_chars[1], allowed_chars[2],
-                                        allowed_chars[3])
-        
-        # Create keyboard writer.
-        key_writer = Controller()
-        
-        # Write text to screen.
-        if anti_detection:
-            for c in filtered_text:
-                key_writer.press(c)
-                
-                # Anti detection wait time between key press and release.
-                reset_time = (float(randint(53, 67)) / 1000.0)
-                sleep(reset_time)
-                
-                key_writer.release(c)
-                
-                # Anti detection wait time between key strokes.
-                delay_time = (float(randint(53, 79)) / 1000.0)
-                sleep(delay_time)
-        else:
-            key_writer.type(filtered_text)
-    # Bind F4 to redraw screen region.
-    elif key_released == Key.f4:
-        selected_region = user_select_screen_region()
-    # Bind F9 to exit() to kill thread.
-    elif key_released == Key.f9:
-        exit(0)
-
-# Entry point funciton.
+# Entry point funciton, and keybind handler.
 def main(alpha, numeric, whitespace, symbols, fast_typing):
-    global anti_detection, selected_region, allowed_chars
+    global key_queue, bind_list
+    
+    # Setup keybind defs and def list.
+    bind_sel_scr_region = Key.f4
+    bind_ocr_to_scr = Key.f8
+    bind_exit_prog = Key.f9
+    
+    bind_list = {bind_sel_scr_region, bind_ocr_to_scr, bind_exit_prog}
     
     # Disable anti bot detection timing if requested.
     if fast_typing:
@@ -227,13 +196,76 @@ def main(alpha, numeric, whitespace, symbols, fast_typing):
     if sys.platform == "win32":
         pytesseract.pytesseract.tesseract_cmd = WIN32_TESSERACT_V4_PATH
     
+    print("\nStarting initial screen region selection.")
+    
     # Get region of screen to use.
     selected_region = user_select_screen_region()
     
-    # Create key sniffer thread and join it (ignore multithreading).
-    key_sniffer = Listener(on_release = on_key_release)
-    key_sniffer.start()
-    key_sniffer.join()
+    print("Starting keybind listner.")
+    
+    # Create key queue for key bind processing.
+    key_queue = Queue()
+    
+    # Create key listner thread and join it (ignore multithreading).
+    key_listner = Listener(on_release = on_key_release)
+    key_listner.start()
+    
+    # Create keyboard writer for OCR data.
+    key_writer = Controller()
+    
+    print("Listening for keybinds.\n")
+    
+    # Main event loop.
+    while True:
+        # Get key from queue.
+        key = key_queue.get()
+        
+        # Handle screen region reselect.
+        if key == bind_sel_scr_region:
+            print("\tRunning: screen region selection.")
+            selected_region = user_select_screen_region()
+        # Handle OCR to screen.
+        elif key == bind_ocr_to_scr:
+            print("\tRunning: OCR to screen.")
+            
+            # Get targeted screen text (numbers only).
+            screen_text = ""
+            
+            try:
+                screen_text = get_image_text(get_screen_region_image(selected_region))
+            except SystemError:
+                print("Error: selected screen region is invalid!\n"
+                    + "Please reselect the screen region.", file=sys.stderr)
+            
+            # Remove unwanted chars from OCR output.
+            filtered_text = get_valid_chars(screen_text, allowed_chars[0],
+                                            allowed_chars[1], allowed_chars[2],
+                                            allowed_chars[3])
+            
+            # Write text to screen.
+            if anti_detection:
+                for c in filtered_text:
+                    key_writer.press(c)
+                    
+                    # Anti detection wait time between key press and release.
+                    reset_time = (float(randint(53, 67)) / 1000.0)
+                    sleep(reset_time)
+                    
+                    key_writer.release(c)
+                    
+                    # Anti detection wait time between key strokes.
+                    delay_time = (float(randint(53, 79)) / 1000.0)
+                    sleep(delay_time)
+            else:
+                key_writer.type(filtered_text)
+        # Handle script exit.
+        elif key == bind_exit_prog:
+            print("\nExiting.")
+            break
+    
+    # Thread cleanup.
+    key_listner.stop()
+    key_listner.join()
 
 # Entry point guard.
 if __name__ == "__main__":
@@ -257,6 +289,7 @@ if __name__ == "__main__":
     # Fetch arguments from sys.argv[].
     args = parser.parse_args()
     
+    # Set default allowed OCR value type.
     if not args.value_type:
         args.value_type = "numeric"
     
